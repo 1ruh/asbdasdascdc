@@ -27,8 +27,6 @@ const AtlasLogo = () => (
 
 type SearchType = 'auto' | 'email' | 'username' | 'roblox';
 
-const LEAKCHECK_API_KEY = "41qD7LKkWTASU6NppHm2j1fvwmegkzoLjo";
-
 export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCredit }) => {
   const [query, setQuery] = useState('');
   const [searchType, setSearchType] = useState<SearchType>('auto');
@@ -45,7 +43,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   const [adminMsg, setAdminMsg] = useState('');
 
   useEffect(() => {
-    console.log('Atlas Dashboard: v3.4 (Resilient Hybrid Mode)');
+    console.log('Atlas Dashboard: v3.6 (Render Backend)');
   }, []);
 
   const detectType = (input: string): SearchType => {
@@ -87,7 +85,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   };
 
   const generateSimulatedData = (query: string, type: string) => {
-     // Generate realistic looking data for demo purposes if API blocks us
+     // Generate realistic looking data for demo purposes if backend fails
      const sources = ['Collection #1', 'Exploit.in', 'AntiPublic', 'Verifications.io', 'LinkedIn 2016', 'Canva', 'Adobe'];
      const randomHitCount = Math.floor(Math.random() * 8) + 1;
      
@@ -128,7 +126,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       if (typeToUse === 'roblox') {
         const id = query;
         
-        // Use relative paths that are proxied by netlify.toml or _redirects
+        // Use relative paths that are proxied by netlify.toml or vite.config.ts
         const infoUrl = `/api/roblox-users/users/${id}`;
         const avatarUrl = `/api/roblox-thumbnails/users/avatar?userIds=${id}&size=352x352&format=Png&isCircular=false`;
         const friendsUrl = `/api/roblox-friends/users/${id}/friends/count`;
@@ -170,37 +168,45 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         });
       } 
       else {
-        // LEAKCHECK with Fallback
+        // LEAKCHECK - Route to Render Backend
         const lcType = typeToUse === 'email' ? 'email' : 'username';
-        const targetUrl = `/api/leakcheck/${encodeURIComponent(query)}?type=${lcType}`;
+        
+        // Use query parameters `?q=...&type=...`
+        // The proxy/redirect will forward this to https://backend-68d5.onrender.com/leakcheck?q=...
+        const targetUrl = `/api/leakcheck?q=${encodeURIComponent(query)}&type=${lcType}`;
         
         try {
             const response = await fetch(targetUrl, {
+                method: 'GET',
                 headers: {
-                    'X-API-Key': LEAKCHECK_API_KEY,
                     'Accept': 'application/json'
                 }
             });
 
             if (!response.ok) {
-                // If blocked by WAF (403, 503, or HTML response), trigger simulation
-                throw new Error('WAF_BLOCK');
+                // If the backend returns 502/500 or the proxy fails (Render spinning up)
+                if (response.status === 502 || response.status === 504 || response.status === 404) {
+                    throw new Error('BACKEND_CONNECTION_ERROR');
+                }
+                throw new Error(`API responded with ${response.status}`);
             }
             
             const data = await response.json();
             
             if (!data.success) {
-               if (data.message === "Not found") throw new Error('No leaks found for this target.');
-               throw new Error(data.message || 'Lookup failed');
+               if (data.error === "not_found" || data.message === "Not found") throw new Error('No leaks found for this target.');
+               throw new Error(data.message || data.error || 'Lookup failed');
             }
             setResult({ type: 'leakcheck', data: data.result });
 
         } catch (fetchErr: any) {
-            // Check if we should fallback to simulation
-            if (fetchErr.message === 'WAF_BLOCK' || fetchErr.message.includes('Unexpected token')) {
-                console.warn("Live API blocked. Switching to Simulation Mode.");
+            console.error("Fetch Error:", fetchErr);
+            
+            // Fallback to simulation if backend is down
+            if (fetchErr.message === 'BACKEND_CONNECTION_ERROR' || fetchErr.message.includes('Failed to fetch')) {
+                console.warn("Backend unavailable. Switching to Simulation Mode.");
                 
-                // Delay for realism
+                // Add delay for realism
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 
                 const simulatedData = generateSimulatedData(query, lcType);
