@@ -1,23 +1,30 @@
-import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
-    return {
-      server: {
-        port: 3000,
-        host: '0.0.0.0',
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: {
+      '/api/roblox-users': {
+        target: 'https://users.roblox.com/v1',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/roblox-users/, ''),
       },
-      plugins: [react()],
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+      '/api/roblox-thumbnails': {
+        target: 'https://thumbnails.roblox.com/v1',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/roblox-thumbnails/, ''),
       },
-      resolve: {
-        alias: {
-          '@': path.resolve(__dirname, '.'),
-        }
-      }
-    };
+      '/api/roblox-friends': {
+        target: 'https://friends.roblox.com/v1',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/roblox-friends/, ''),
+      },
+      '/api/roblox-groups': {
+        target: 'https://groups.roblox.com/v1',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/roblox-groups/, ''),
+      },
+    },
+  },
 });
