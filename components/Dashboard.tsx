@@ -27,7 +27,7 @@ const AtlasLogo = () => (
 
 type SearchType = 'auto' | 'email' | 'username' | 'roblox';
 
-const LEAKCHECK_API_KEY = "41qD7LKkWTASU6NppHm2j1fvwmegkzoLjo";
+const LEAKCHECK_API_KEY = "4344cd645b6e6cc2559c1a92017d9bfa12e4e4b1";
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCredit }) => {
   const [query, setQuery] = useState('');
@@ -44,7 +44,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   const [adminMsg, setAdminMsg] = useState('');
 
   useEffect(() => {
-    console.log('Atlas Dashboard: v3.0 (External Proxy Fallback System)');
+    console.log('Atlas Dashboard: v3.1 (Direct Connection Mode)');
   }, []);
 
   const detectType = (input: string): SearchType => {
@@ -85,51 +85,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       }
   };
 
-  const fetchWithFallback = async (targetUrl: string, options: RequestInit) => {
-      // List of proxies to try in order.
-      // 1. ThingProxy (Reliable, handles headers)
-      // 2. AllOrigins (Backup, might strip some headers but worth a shot)
-      // 3. CorsProxy.io (Last resort)
-      const proxies = [
-          (url: string) => `https://thingproxy.freeboard.io/fetch/${url}`,
-          (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-          (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`
-      ];
-
-      let lastError;
-
-      for (const proxyGen of proxies) {
-          try {
-              const proxiedUrl = proxyGen(targetUrl);
-              console.log(`Attempting connection via: ${new URL(proxiedUrl).hostname}`);
-              
-              const response = await fetch(proxiedUrl, options);
-              
-              if (response.ok) {
-                  return response;
-              }
-              
-              // If we get a 404/403 from the PROXY itself (often HTML), treat as network error and try next
-              const contentType = response.headers.get('content-type');
-              if (contentType && contentType.includes('text/html')) {
-                  console.warn(`Proxy ${new URL(proxiedUrl).hostname} returned HTML error.`);
-                  continue; 
-              }
-
-              // If it's a legitimate API error (like 404 Not Found from LeakCheck), return it immediately
-              // don't try other proxies for a valid API error.
-              if (response.status === 404 || response.status === 400 || response.status === 429) {
-                  return response;
-              }
-
-          } catch (err) {
-              console.warn(`Proxy failed:`, err);
-              lastError = err;
-          }
-      }
-      throw lastError || new Error("All connection routes failed.");
-  };
-
   const handleSearch = async () => {
     if (!query) return;
 
@@ -149,7 +104,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       if (typeToUse === 'roblox') {
         const id = query;
         
-        // Roblox uses local Netlify redirects which are working fine or handled via _redirects
+        // Use relative paths that are proxied by netlify.toml or _redirects
         const infoUrl = `/api/roblox-users/users/${id}`;
         const avatarUrl = `/api/roblox-thumbnails/users/avatar?userIds=${id}&size=352x352&format=Png&isCircular=false`;
         const friendsUrl = `/api/roblox-friends/users/${id}/friends/count`;
@@ -191,11 +146,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         });
       } 
       else {
-        // LEAKCHECK - Uses FetchWithFallback
+        // LEAKCHECK - Direct connection via local/cloud proxy path
         const lcType = typeToUse === 'email' ? 'email' : 'username';
-        const targetUrl = `https://leakcheck.io/api/v2/query/${encodeURIComponent(query)}?type=${lcType}`;
         
-        const response = await fetchWithFallback(targetUrl, {
+        // This relative path "/api/leakcheck" will be handled by:
+        // 1. vite.config.ts (in dev) -> proxies to leakcheck.io
+        // 2. netlify.toml (in prod) -> redirects to leakcheck.io
+        // This avoids using "corsproxy.io" or other third party services.
+        const targetUrl = `/api/leakcheck/${encodeURIComponent(query)}?type=${lcType}`;
+        
+        const response = await fetch(targetUrl, {
             headers: {
                 'X-API-Key': LEAKCHECK_API_KEY,
                 'Accept': 'application/json'
@@ -203,6 +163,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         });
 
         if (!response.ok) {
+            // If the proxy config is missing or fails, we might see HTML (404/500 from host)
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('text/html')) {
+                 console.error('Proxy Error: Received HTML instead of JSON. Check netlify.toml or vite.config.ts');
+                 throw new Error('Connection Error: The security gateway refused the connection.');
+            }
+            
             throw new Error(`Lookup failed: API responded with ${response.status}`);
         }
         
@@ -217,7 +184,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       }
     } catch (err: any) {
       console.error("Search Error:", err);
-      setError(err.message || 'Connection failed. Please try again later.');
+      setError(err.message || 'An error occurred during the investigation.');
     } finally {
       setIsLoading(false);
     }
