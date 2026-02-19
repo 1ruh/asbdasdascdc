@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, LogOut, ShieldAlert, User, Database, Globe, AlertTriangle, CheckCircle, Loader2, Copy, Users, Crown, Shield, Zap, X } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
@@ -27,8 +27,7 @@ const AtlasLogo = () => (
 
 type SearchType = 'auto' | 'email' | 'username' | 'roblox';
 
-const LEAKCHECK_API_KEY = "4344cd645b6e6cc2559c1a92017d9bfa12e4e4b1";
-const CORS_PROXY = "https://corsproxy.io/?";
+const LEAKCHECK_API_KEY = "41qD7LKkWTASU6NppHm2j1fvwmegkzoLjo";
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCredit }) => {
   const [query, setQuery] = useState('');
@@ -44,6 +43,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   const [adminStatus, setAdminStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [adminMsg, setAdminMsg] = useState('');
 
+  useEffect(() => {
+    // Debug log to confirm new code is deployed
+    console.log('Atlas Dashboard: Proxy Logic Loaded (v2.2)');
+  }, []);
+
   const detectType = (input: string): SearchType => {
     if (input.includes('@')) return 'email';
     if (/^\d{5,15}$/.test(input)) return 'roblox'; 
@@ -56,8 +60,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       setAdminMsg('');
 
       try {
-          // This requires a PostgreSQL RPC function named 'admin_add_credits'
-          // args: target_email (text), amount (int)
           const { error } = await supabase.rpc('admin_add_credits', { 
               target_email: targetEmail, 
               amount: parseInt(creditAmount) 
@@ -76,7 +78,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       } catch (err: any) {
           console.error('Admin Action Failed:', err);
           setAdminStatus('error');
-          // Fallback message if RPC doesn't exist yet
           if (err.message?.includes('function') && err.message?.includes('does not exist')) {
              setAdminMsg('Backend function missing. Please run the SQL setup script.');
           } else {
@@ -88,15 +89,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   const handleSearch = async () => {
     if (!query) return;
 
-    // Credit Check
     if (user.credits !== 'INF' && typeof user.credits === 'number' && user.credits <= 0) {
       setError("INSUFFICIENT CREDITS. Access denied. Please contact administration.");
       return;
     }
 
-    // Deduct Credit (optimistic update happens in parent, but we call it here)
     onDeductCredit();
-    
     setIsLoading(true);
     setResult(null);
     setError(null);
@@ -105,32 +103,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
 
     try {
       if (typeToUse === 'roblox') {
-        // ROBLOX: Parallel fetch for enriched data
         const id = query;
         
-        // 1. Basic Info
-        const infoUrl = `https://users.roblox.com/v1/users/${id}`;
-        // 2. Avatar
-        const avatarUrl = `https://thumbnails.roblox.com/v1/users/avatar?userIds=${id}&size=352x352&format=Png&isCircular=false`;
-        // 3. Friends Count
-        const friendsUrl = `https://friends.roblox.com/v1/users/${id}/friends/count`;
-        // 4. Followers Count
-        const followersUrl = `https://friends.roblox.com/v1/users/${id}/followers/count`;
-        // 5. Followings Count
-        const followingUrl = `https://friends.roblox.com/v1/users/${id}/followings/count`;
-        // 6. Groups (get roles)
-        const groupsUrl = `https://groups.roblox.com/v1/users/${id}/groups/roles`;
+        // Use relative paths that are proxied by netlify.toml or _redirects
+        const infoUrl = `/api/roblox-users/users/${id}`;
+        const avatarUrl = `/api/roblox-thumbnails/users/avatar?userIds=${id}&size=352x352&format=Png&isCircular=false`;
+        const friendsUrl = `/api/roblox-friends/users/${id}/friends/count`;
+        const followersUrl = `/api/roblox-friends/users/${id}/followers/count`;
+        const followingUrl = `/api/roblox-friends/users/${id}/followings/count`;
+        const groupsUrl = `/api/roblox-groups/users/${id}/groups/roles`;
 
         const [infoRes, avatarRes, friendsRes, followersRes, followingRes, groupsRes] = await Promise.all([
-          fetch(`${CORS_PROXY}${encodeURIComponent(infoUrl)}`),
-          fetch(`${CORS_PROXY}${encodeURIComponent(avatarUrl)}`),
-          fetch(`${CORS_PROXY}${encodeURIComponent(friendsUrl)}`),
-          fetch(`${CORS_PROXY}${encodeURIComponent(followersUrl)}`),
-          fetch(`${CORS_PROXY}${encodeURIComponent(followingUrl)}`),
-          fetch(`${CORS_PROXY}${encodeURIComponent(groupsUrl)}`),
+          fetch(infoUrl),
+          fetch(avatarUrl),
+          fetch(friendsUrl),
+          fetch(followersUrl),
+          fetch(followingUrl),
+          fetch(groupsUrl),
         ]);
 
-        if (!infoRes.ok) throw new Error('Roblox user not found');
+        if (!infoRes.ok) {
+           if (infoRes.status === 404) throw new Error('Roblox user not found.');
+           throw new Error(`Roblox API Error: ${infoRes.statusText}`);
+        }
         
         const infoData = await infoRes.json();
         const avatarData = await avatarRes.json();
@@ -147,17 +142,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
             friendsCount: friendsData.count,
             followersCount: followersData.count,
             followingCount: followingData.count,
-            groups: groupsData.data || [] // List of groups
+            groups: groupsData.data || [] 
           } 
         });
       } 
       else {
-        // LEAKCHECK: Must use CORS proxy for browser requests to this API
+        // LEAKCHECK
         const lcType = typeToUse === 'email' ? 'email' : 'username';
-        const targetUrl = `https://leakcheck.io/api/v2/query/${encodeURIComponent(query)}?type=${lcType}`;
-        const proxyUrl = `${CORS_PROXY}${encodeURIComponent(targetUrl)}`;
+        const targetUrl = `/api/leakcheck/${encodeURIComponent(query)}?type=${lcType}`;
         
-        const response = await fetch(proxyUrl, {
+        const response = await fetch(targetUrl, {
             headers: {
                 'X-API-Key': LEAKCHECK_API_KEY,
                 'Accept': 'application/json'
@@ -165,13 +159,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         });
 
         if (!response.ok) {
+            // Check if it's an HTML error page (common with proxy failures)
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('text/html')) {
+                throw new Error('Database connection failed (Proxy Error). Please try again later.');
+            }
             throw new Error(`Lookup failed: API responded with ${response.status}`);
         }
         
         const data = await response.json();
         
         if (!data.success) {
-           // Handle specific LeakCheck messages
            if (data.message === "Not found") throw new Error('No leaks found for this target.');
            throw new Error(data.message || 'Lookup failed');
         }
@@ -179,7 +177,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         setResult({ type: 'leakcheck', data: data.result });
       }
     } catch (err: any) {
-      console.error(err);
+      console.error("Search Error:", err);
       setError(err.message || 'An error occurred during the investigation.');
     } finally {
       setIsLoading(false);
