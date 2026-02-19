@@ -27,7 +27,7 @@ const AtlasLogo = () => (
 
 type SearchType = 'auto' | 'email' | 'username' | 'roblox';
 
-const LEAKCHECK_API_KEY = "4344cd645b6e6cc2559c1a92017d9bfa12e4e4b1";
+const LEAKCHECK_API_KEY = "41qD7LKkWTASU6NppHm2j1fvwmegkzoLjo";
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCredit }) => {
   const [query, setQuery] = useState('');
@@ -44,7 +44,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   const [adminMsg, setAdminMsg] = useState('');
 
   useEffect(() => {
-    console.log('Atlas Dashboard: v3.1 (Direct Connection Mode)');
+    console.log('Atlas Dashboard: v3.2 (Absolute Direct Connection)');
   }, []);
 
   const detectType = (input: string): SearchType => {
@@ -104,7 +104,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       if (typeToUse === 'roblox') {
         const id = query;
         
-        // Use relative paths that are proxied by netlify.toml or _redirects
+        // Use relative paths for Roblox as they likely still need CORS handling via netlify.toml
         const infoUrl = `/api/roblox-users/users/${id}`;
         const avatarUrl = `/api/roblox-thumbnails/users/avatar?userIds=${id}&size=352x352&format=Png&isCircular=false`;
         const friendsUrl = `/api/roblox-friends/users/${id}/friends/count`;
@@ -146,14 +146,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         });
       } 
       else {
-        // LEAKCHECK - Direct connection via local/cloud proxy path
+        // LEAKCHECK - DIRECT ABSOLUTE CONNECTION
         const lcType = typeToUse === 'email' ? 'email' : 'username';
         
-        // This relative path "/api/leakcheck" will be handled by:
-        // 1. vite.config.ts (in dev) -> proxies to leakcheck.io
-        // 2. netlify.toml (in prod) -> redirects to leakcheck.io
-        // This avoids using "corsproxy.io" or other third party services.
-        const targetUrl = `/api/leakcheck/${encodeURIComponent(query)}?type=${lcType}`;
+        // Using direct URL as requested
+        const targetUrl = `https://leakcheck.io/api/v2/query/${encodeURIComponent(query)}?type=${lcType}`;
         
         const response = await fetch(targetUrl, {
             headers: {
@@ -163,13 +160,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         });
 
         if (!response.ok) {
-            // If the proxy config is missing or fails, we might see HTML (404/500 from host)
-            const contentType = response.headers.get('content-type');
-            if (contentType && contentType.includes('text/html')) {
-                 console.error('Proxy Error: Received HTML instead of JSON. Check netlify.toml or vite.config.ts');
-                 throw new Error('Connection Error: The security gateway refused the connection.');
-            }
-            
             throw new Error(`Lookup failed: API responded with ${response.status}`);
         }
         
@@ -184,7 +174,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       }
     } catch (err: any) {
       console.error("Search Error:", err);
-      setError(err.message || 'An error occurred during the investigation.');
+      // More descriptive error if it looks like a CORS issue
+      if (err.message === 'Failed to fetch' || err.message.includes('NetworkError')) {
+          setError('Connection failed. This is likely a CORS restriction from the API provider. A backend proxy is required for production.');
+      } else {
+          setError(err.message || 'An error occurred during the investigation.');
+      }
     } finally {
       setIsLoading(false);
     }
