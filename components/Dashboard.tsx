@@ -13,6 +13,7 @@ interface DashboardProps {
     name: string;
     credits: number | string;
     isAdmin: boolean;
+    id?: string;
   };
   onLogout: () => void;
   onDeductCredit: () => void;
@@ -42,7 +43,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   const [adminMsg, setAdminMsg] = useState('');
 
   useEffect(() => {
-    console.log('Atlas Dashboard: v4.0 (Live Production - No Mocks)');
+    console.log('Atlas Dashboard: v4.1 (Admin Ops Enhanced)');
   }, []);
 
   const detectType = (input: string): SearchType => {
@@ -56,7 +57,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       setAdminStatus('loading');
       setAdminMsg('');
 
+      // 1. Handle Local Admin Bypass (Mock Mode)
+      if (user.id === 'admin-local-bypass') {
+           setAdminStatus('success');
+           setAdminMsg(`[DEMO] Simulated adding ${creditAmount} credits to ${targetEmail}`);
+           setTimeout(() => {
+              setAdminStatus('idle');
+              setTargetEmail('');
+              setShowAdminModal(false);
+           }, 2000);
+           return;
+      }
+
       try {
+          // 2. Optimization: If admin is adding to THEMSELVES, use updateUser client-side
+          // This avoids needing the RPC function for self-testing
+          if (targetEmail.trim().toLowerCase() === user.email.trim().toLowerCase()) {
+              const currentCredits = typeof user.credits === 'number' ? user.credits : 0;
+              const newCredits = currentCredits + parseInt(creditAmount);
+              
+              const { error } = await supabase.auth.updateUser({
+                  data: { credits: newCredits }
+              });
+              
+              if (error) throw error;
+              
+              setAdminStatus('success');
+              setAdminMsg(`Credits updated successfully for ${user.email}`);
+              
+              setTimeout(() => {
+                  setAdminStatus('idle');
+                  setTargetEmail('');
+                  setShowAdminModal(false);
+                  // Refresh the page or trigger state update if needed, though onAuthStateChange usually catches this
+                  window.location.reload(); 
+              }, 1500);
+              return;
+          }
+
+          // 3. Adding to OTHERS via RPC
+          // This requires the 'admin_add_credits' function in Supabase
           const { error } = await supabase.rpc('admin_add_credits', { 
               target_email: targetEmail, 
               amount: parseInt(creditAmount) 
@@ -75,8 +115,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       } catch (err: any) {
           console.error('Admin Action Failed:', err);
           setAdminStatus('error');
+          
           if (err.message?.includes('function') && err.message?.includes('does not exist')) {
-             setAdminMsg('Backend function missing. Please run the SQL setup script.');
+             setAdminMsg('Backend function missing. See console for SQL.');
+             console.warn(`
+[ATLAS ADMIN GUIDE]
+To enable adding credits to OTHER users, you must run this SQL in your Supabase SQL Editor:
+
+create or replace function admin_add_credits(target_email text, amount int)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update auth.users
+  set raw_user_meta_data = 
+    jsonb_set(
+      coalesce(raw_user_meta_data, '{}'::jsonb),
+      '{credits}',
+      (coalesce((raw_user_meta_data->>'credits')::int, 0) + amount)::text::jsonb
+    )
+  where email = target_email;
+end;
+$$;
+             `);
           } else {
              setAdminMsg(err.message || 'Operation failed');
           }
