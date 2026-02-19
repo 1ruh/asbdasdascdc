@@ -1,0 +1,45 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Roblox Users API
+[[redirects]]
+  from = "/api/roblox-users/*"
+  to = "https://users.roblox.com/v1/:splat"
+  status = 200
+  force = true
+
+# Roblox Thumbnails API
+[[redirects]]
+  from = "/api/roblox-thumbnails/*"
+  to = "https://thumbnails.roblox.com/v1/:splat"
+  status = 200
+  force = true
+
+# Roblox Friends/Followers API
+[[redirects]]
+  from = "/api/roblox-friends/*"
+  to = "https://friends.roblox.com/v1/:splat"
+  status = 200
+  force = true
+
+# Roblox Groups API
+[[redirects]]
+  from = "/api/roblox-groups/*"
+  to = "https://groups.roblox.com/v1/:splat"
+  status = 200
+  force = true
+
+# LeakCheck API (Hosted Backend)
+# Note: Query parameters are automatically preserved by Netlify
+[[redirects]]
+  from = "/api/leakcheck"
+  to = "https://backend-68d5.onrender.com/leakcheck"
+  status = 200
+  force = true
+
+# SPA Fallback (Must be last)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
