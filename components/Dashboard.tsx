@@ -44,7 +44,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   const [adminMsg, setAdminMsg] = useState('');
 
   useEffect(() => {
-    console.log('Atlas Dashboard: v3.2 (Absolute Direct Connection)');
+    console.log('Atlas Dashboard: v3.3 (Stealth Proxy Mode)');
   }, []);
 
   const detectType = (input: string): SearchType => {
@@ -104,7 +104,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       if (typeToUse === 'roblox') {
         const id = query;
         
-        // Use relative paths for Roblox as they likely still need CORS handling via netlify.toml
+        // Use relative paths that are proxied by netlify.toml or _redirects
         const infoUrl = `/api/roblox-users/users/${id}`;
         const avatarUrl = `/api/roblox-thumbnails/users/avatar?userIds=${id}&size=352x352&format=Png&isCircular=false`;
         const friendsUrl = `/api/roblox-friends/users/${id}/friends/count`;
@@ -146,11 +146,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         });
       } 
       else {
-        // LEAKCHECK - DIRECT ABSOLUTE CONNECTION
+        // LEAKCHECK - Uses local proxy with enhanced headers
         const lcType = typeToUse === 'email' ? 'email' : 'username';
         
-        // Using direct URL as requested
-        const targetUrl = `https://leakcheck.io/api/v2/query/${encodeURIComponent(query)}?type=${lcType}`;
+        // This goes to vite proxy which now spoofs User-Agent
+        const targetUrl = `/api/leakcheck/${encodeURIComponent(query)}?type=${lcType}`;
         
         const response = await fetch(targetUrl, {
             headers: {
@@ -160,6 +160,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         });
 
         if (!response.ok) {
+            // Check if it's an HTML error page (common with proxy failures/Cloudflare)
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('text/html')) {
+                // If we are still blocked, it's likely Cloudflare IP blocking.
+                // We throw a specific error.
+                throw new Error('Connection refused by target firewall. (WAF Block)');
+            }
             throw new Error(`Lookup failed: API responded with ${response.status}`);
         }
         
@@ -174,9 +181,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       }
     } catch (err: any) {
       console.error("Search Error:", err);
-      // More descriptive error if it looks like a CORS issue
-      if (err.message === 'Failed to fetch' || err.message.includes('NetworkError')) {
-          setError('Connection failed. This is likely a CORS restriction from the API provider. A backend proxy is required for production.');
+      if (err.message.includes('WAF Block')) {
+          setError('Target security gateway is blocking the request. A backend infrastructure upgrade is required for this specific API.');
       } else {
           setError(err.message || 'An error occurred during the investigation.');
       }
