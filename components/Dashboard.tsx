@@ -44,8 +44,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   const [adminMsg, setAdminMsg] = useState('');
 
   useEffect(() => {
-    // Debug log to confirm new code is deployed
-    console.log('Atlas Dashboard: Proxy Logic Loaded (v2.2)');
+    console.log('Atlas Dashboard: v3.0 (External Proxy Fallback System)');
   }, []);
 
   const detectType = (input: string): SearchType => {
@@ -86,6 +85,51 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       }
   };
 
+  const fetchWithFallback = async (targetUrl: string, options: RequestInit) => {
+      // List of proxies to try in order.
+      // 1. ThingProxy (Reliable, handles headers)
+      // 2. AllOrigins (Backup, might strip some headers but worth a shot)
+      // 3. CorsProxy.io (Last resort)
+      const proxies = [
+          (url: string) => `https://thingproxy.freeboard.io/fetch/${url}`,
+          (url: string) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+          (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`
+      ];
+
+      let lastError;
+
+      for (const proxyGen of proxies) {
+          try {
+              const proxiedUrl = proxyGen(targetUrl);
+              console.log(`Attempting connection via: ${new URL(proxiedUrl).hostname}`);
+              
+              const response = await fetch(proxiedUrl, options);
+              
+              if (response.ok) {
+                  return response;
+              }
+              
+              // If we get a 404/403 from the PROXY itself (often HTML), treat as network error and try next
+              const contentType = response.headers.get('content-type');
+              if (contentType && contentType.includes('text/html')) {
+                  console.warn(`Proxy ${new URL(proxiedUrl).hostname} returned HTML error.`);
+                  continue; 
+              }
+
+              // If it's a legitimate API error (like 404 Not Found from LeakCheck), return it immediately
+              // don't try other proxies for a valid API error.
+              if (response.status === 404 || response.status === 400 || response.status === 429) {
+                  return response;
+              }
+
+          } catch (err) {
+              console.warn(`Proxy failed:`, err);
+              lastError = err;
+          }
+      }
+      throw lastError || new Error("All connection routes failed.");
+  };
+
   const handleSearch = async () => {
     if (!query) return;
 
@@ -105,7 +149,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       if (typeToUse === 'roblox') {
         const id = query;
         
-        // Use relative paths that are proxied by netlify.toml or _redirects
+        // Roblox uses local Netlify redirects which are working fine or handled via _redirects
         const infoUrl = `/api/roblox-users/users/${id}`;
         const avatarUrl = `/api/roblox-thumbnails/users/avatar?userIds=${id}&size=352x352&format=Png&isCircular=false`;
         const friendsUrl = `/api/roblox-friends/users/${id}/friends/count`;
@@ -147,11 +191,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         });
       } 
       else {
-        // LEAKCHECK
+        // LEAKCHECK - Uses FetchWithFallback
         const lcType = typeToUse === 'email' ? 'email' : 'username';
-        const targetUrl = `/api/leakcheck/${encodeURIComponent(query)}?type=${lcType}`;
+        const targetUrl = `https://leakcheck.io/api/v2/query/${encodeURIComponent(query)}?type=${lcType}`;
         
-        const response = await fetch(targetUrl, {
+        const response = await fetchWithFallback(targetUrl, {
             headers: {
                 'X-API-Key': LEAKCHECK_API_KEY,
                 'Accept': 'application/json'
@@ -159,11 +203,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
         });
 
         if (!response.ok) {
-            // Check if it's an HTML error page (common with proxy failures)
-            const contentType = response.headers.get('content-type');
-            if (contentType && contentType.includes('text/html')) {
-                throw new Error('Database connection failed (Proxy Error). Please try again later.');
-            }
             throw new Error(`Lookup failed: API responded with ${response.status}`);
         }
         
@@ -178,7 +217,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       }
     } catch (err: any) {
       console.error("Search Error:", err);
-      setError(err.message || 'An error occurred during the investigation.');
+      setError(err.message || 'Connection failed. Please try again later.');
     } finally {
       setIsLoading(false);
     }
@@ -548,7 +587,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
                                <div className="flex flex-col">
                                  <span className="text-white">{item.username || 'N/A'}</span>
                                  <span className="text-xs text-gray-500">{item.email}</span>
-                               </div>
+                                </div>
                             </td>
                             <td className="p-4">
                               <div className="group relative cursor-help w-fit">
