@@ -25,6 +25,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/roblox-groups/, ''),
       },
+      '/api/leakcheck': {
+        target: 'https://leakcheck.io/api/v2/query',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/leakcheck/, ''),
+      },
     },
   },
 });
