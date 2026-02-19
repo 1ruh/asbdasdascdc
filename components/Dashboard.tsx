@@ -33,7 +33,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [isSimulation, setIsSimulation] = useState(false);
   
   // Admin State
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -43,7 +42,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
   const [adminMsg, setAdminMsg] = useState('');
 
   useEffect(() => {
-    console.log('Atlas Dashboard: v3.6 (Render Backend)');
+    console.log('Atlas Dashboard: v4.0 (Live Production - No Mocks)');
   }, []);
 
   const detectType = (input: string): SearchType => {
@@ -84,28 +83,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
       }
   };
 
-  const generateSimulatedData = (query: string, type: string) => {
-     // Generate realistic looking data for demo purposes if backend fails
-     const sources = ['Collection #1', 'Exploit.in', 'AntiPublic', 'Verifications.io', 'LinkedIn 2016', 'Canva', 'Adobe'];
-     const randomHitCount = Math.floor(Math.random() * 8) + 1;
-     
-     const results = [];
-     for(let i=0; i<randomHitCount; i++) {
-        const date = new Date();
-        date.setFullYear(date.getFullYear() - Math.floor(Math.random() * 5));
-        date.setMonth(Math.floor(Math.random() * 12));
-        
-        results.push({
-            sources: [sources[Math.floor(Math.random() * sources.length)]],
-            username: type === 'email' ? query.split('@')[0] : query,
-            email: type === 'email' ? query : `${query}@gmail.com`,
-            password: Math.random().toString(36).slice(-10),
-            date: date.toISOString().split('T')[0] + ' 12:00:00'
-        });
-     }
-     return results;
-  };
-
   const handleSearch = async () => {
     if (!query) return;
 
@@ -118,7 +95,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
     setIsLoading(true);
     setResult(null);
     setError(null);
-    setIsSimulation(false);
 
     const typeToUse = searchType === 'auto' ? detectType(query) : searchType;
 
@@ -186,7 +162,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
             if (!response.ok) {
                 // If the backend returns 502/500 or the proxy fails (Render spinning up)
                 if (response.status === 502 || response.status === 504 || response.status === 404) {
-                    throw new Error('BACKEND_CONNECTION_ERROR');
+                    throw new Error('Could not connect to Intelligence Backend. Please try again in a few moments (Server waking up).');
                 }
                 throw new Error(`API responded with ${response.status}`);
             }
@@ -201,20 +177,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
 
         } catch (fetchErr: any) {
             console.error("Fetch Error:", fetchErr);
-            
-            // Fallback to simulation if backend is down
-            if (fetchErr.message === 'BACKEND_CONNECTION_ERROR' || fetchErr.message.includes('Failed to fetch')) {
-                console.warn("Backend unavailable. Switching to Simulation Mode.");
-                
-                // Add delay for realism
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                
-                const simulatedData = generateSimulatedData(query, lcType);
-                setResult({ type: 'leakcheck', data: simulatedData });
-                setIsSimulation(true);
-            } else {
-                throw fetchErr;
-            }
+            throw fetchErr;
         }
       }
     } catch (err: any) {
@@ -471,17 +434,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
               exit={{ opacity: 0, y: -20 }}
               className="w-full"
             >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                    <ShieldAlert className="w-5 h-5 text-blue-400" />
-                    <h2 className="text-lg font-bold text-white tracking-wide uppercase">Intelligence Report</h2>
-                </div>
-                {isSimulation && (
-                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-500 text-xs font-bold uppercase tracking-wider animate-pulse">
-                        <Terminal className="w-3 h-3" />
-                        DEMO MODE / SIMULATED DATA
-                    </div>
-                )}
+              <div className="flex items-center gap-2 mb-4">
+                <ShieldAlert className="w-5 h-5 text-blue-400" />
+                <h2 className="text-lg font-bold text-white tracking-wide uppercase">Intelligence Report</h2>
               </div>
 
               {/* ROBLOX RESULT */}
@@ -572,7 +527,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout, onDeductCr
                 <div className="bg-black/40 backdrop-blur-md border border-white/10 rounded-3xl overflow-hidden">
                   <div className="p-6 border-b border-white/10 flex justify-between items-center">
                     <h3 className="font-bold text-white">Data Breach Index</h3>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold border ${isSimulation ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/20' : 'bg-red-500/20 text-red-400 border-red-500/20'}`}>
+                    <span className="bg-red-500/20 text-red-400 px-3 py-1 rounded-full text-xs font-bold border border-red-500/20">
                       {result.data.length} HITS FOUND
                     </span>
                   </div>
